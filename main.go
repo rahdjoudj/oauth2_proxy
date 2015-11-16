@@ -52,6 +52,10 @@ func main() {
 	flagSet.String("custom-templates-dir", "", "path to custom html templates")
 	flagSet.String("proxy-prefix", "/oauth2", "the url root path that this proxy should be nested under (e.g. /<oauth2>/sign_in)")
 
+	flagSet.String("app-cookie-name", "login-token", "token created by application")
+	flagSet.String("saved-app-cookie-name", "_oauth2_cq", "the name of the cookie that oauth_proxy creates for bypass")
+	flagSet.Duration("app-cookie-expire", time.Duration(1)*time.Hour, "expire timeframe for app-cookie")
+
 	flagSet.String("cookie-name", "_oauth2_proxy", "the name of the cookie that the oauth_proxy creates")
 	flagSet.String("cookie-secret", "", "the seed string for secure cookies")
 	flagSet.String("cookie-domain", "", "an optional cookie domain to force cookies to (ie: .yourcompany.com)*")

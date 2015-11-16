@@ -19,14 +19,17 @@ import (
 )
 
 type OAuthProxy struct {
-	CookieSeed     string
-	CookieName     string
-	CookieDomain   string
-	CookieSecure   bool
-	CookieHttpOnly bool
-	CookieExpire   time.Duration
-	CookieRefresh  time.Duration
-	Validator      func(string) bool
+	AppCookieName      string
+	SavedAppCookieName string
+	CookieSeed         string
+	CookieName         string
+	CookieDomain       string
+	CookieSecure       bool
+	CookieHttpOnly     bool
+	CookieExpire       time.Duration
+	CookieRefresh      time.Duration
+	AppCookieExpire    time.Duration
+	Validator          func(string) bool
 
 	RobotsPath        string
 	PingPath          string
@@ -132,6 +135,7 @@ func NewOAuthProxy(opts *Options, validator func(string) bool) *OAuthProxy {
 	}
 
 	log.Printf("Cookie settings: name:%s secure(https):%v httponly:%v expiry:%s domain:%s refresh:%s", opts.CookieName, opts.CookieSecure, opts.CookieHttpOnly, opts.CookieExpire, domain, refresh)
+	log.Printf("AppCookie settings: source:%s name:%s exipry:%s", opts.AppCookieName, opts.SavedAppCookieName, opts.AppCookieExpire)
 
 	var cipher *cookie.Cipher
 	if opts.PassAccessToken || (opts.CookieRefresh != time.Duration(0)) {
@@ -144,14 +148,17 @@ func NewOAuthProxy(opts *Options, validator func(string) bool) *OAuthProxy {
 	}
 
 	return &OAuthProxy{
-		CookieName:     opts.CookieName,
-		CookieSeed:     opts.CookieSecret,
-		CookieDomain:   opts.CookieDomain,
-		CookieSecure:   opts.CookieSecure,
-		CookieHttpOnly: opts.CookieHttpOnly,
-		CookieExpire:   opts.CookieExpire,
-		CookieRefresh:  opts.CookieRefresh,
-		Validator:      validator,
+		AppCookieName:      opts.AppCookieName,
+		SavedAppCookieName: opts.SavedAppCookieName,
+		CookieName:         opts.CookieName,
+		CookieSeed:         opts.CookieSecret,
+		CookieDomain:       opts.CookieDomain,
+		CookieSecure:       opts.CookieSecure,
+		CookieHttpOnly:     opts.CookieHttpOnly,
+		CookieExpire:       opts.CookieExpire,
+		CookieRefresh:      opts.CookieRefresh,
+		AppCookieExpire:    opts.AppCookieExpire,
+		Validator:          validator,
 
 		RobotsPath:        "/robots.txt",
 		PingPath:          "/ping",
@@ -213,7 +220,7 @@ func (p *OAuthProxy) redeemCode(host, code string) (s *providers.SessionState, e
 	return
 }
 
-func (p *OAuthProxy) MakeCookie(req *http.Request, value string, expiration time.Duration, now time.Time) *http.Cookie {
+func (p *OAuthProxy) MakeCookie(req *http.Request, name string, value string, expiration time.Duration, now time.Time) *http.Cookie {
 	domain := req.Host
 	if h, _, err := net.SplitHostPort(domain); err == nil {
 		domain = h
@@ -226,10 +233,10 @@ func (p *OAuthProxy) MakeCookie(req *http.Request, value string, expiration time
 	}
 
 	if value != "" {
-		value = cookie.SignedValue(p.CookieSeed, p.CookieName, value, now)
+		value = cookie.SignedValue(p.CookieSeed, name, value, now)
 	}
 	return &http.Cookie{
-		Name:     p.CookieName,
+		Name:     name,
 		Value:    value,
 		Path:     "/",
 		Domain:   domain,
@@ -240,11 +247,37 @@ func (p *OAuthProxy) MakeCookie(req *http.Request, value string, expiration time
 }
 
 func (p *OAuthProxy) ClearCookie(rw http.ResponseWriter, req *http.Request) {
-	http.SetCookie(rw, p.MakeCookie(req, "", time.Hour*-1, time.Now()))
+	http.SetCookie(rw, p.MakeCookie(req, p.CookieName, "", time.Hour*-1, time.Now()))
 }
 
 func (p *OAuthProxy) SetCookie(rw http.ResponseWriter, req *http.Request, val string) {
-	http.SetCookie(rw, p.MakeCookie(req, val, p.CookieExpire, time.Now()))
+	http.SetCookie(rw, p.MakeCookie(req, p.CookieName, val, p.CookieExpire, time.Now()))
+}
+
+func (p *OAuthProxy) SetAppCookie(rw http.ResponseWriter, req *http.Request, val string) {
+	c, err := req.Cookie(p.AppCookieName)
+	if err == nil {
+		log.Printf("%v detected - Set Application cookie CQ-token %v", p.AppCookieName, c.Value)
+		log.Printf("using val: %v", val)
+		// http.SetCookie(rw, p.MakeCookie(req, p.SavedAppCookieName, c.Value, p.CookieExpire, time.Now()))
+		http.SetCookie(rw, p.MakeCookie(req, p.SavedAppCookieName, val, p.AppCookieExpire, time.Now()))
+	}
+}
+
+func (p *OAuthProxy) LoadAppCookiedSession(req *http.Request) (string, time.Duration, error) {
+	var appAge time.Duration
+	c, err := req.Cookie(p.SavedAppCookieName)
+	if err != nil {
+		// always http.ErrNoCookie
+		return "", appAge, fmt.Errorf("Cookie %q not present", p.SavedAppCookieName)
+	}
+	val, timestamp, ok := cookie.Validate(c, p.CookieSeed, p.CookieExpire)
+	if !ok {
+		return "", appAge, errors.New("Cookie Signature not valid")
+	}
+
+	appAge = time.Now().Truncate(time.Second).Sub(timestamp)
+	return val, appAge, nil
 }
 
 func (p *OAuthProxy) LoadCookiedSession(req *http.Request) (*providers.SessionState, time.Duration, error) {
@@ -274,6 +307,7 @@ func (p *OAuthProxy) SaveSession(rw http.ResponseWriter, req *http.Request, s *p
 		return err
 	}
 	p.SetCookie(rw, req, value)
+	// p.SetAppCookie(rw, req)
 	return nil
 }
 
@@ -486,6 +520,7 @@ func (p *OAuthProxy) Proxy(rw http.ResponseWriter, req *http.Request) {
 		p.ErrorPage(rw, http.StatusInternalServerError,
 			"Internal Error", "Internal Error")
 	} else if status == http.StatusForbidden {
+		log.Printf("StatusForbidden %d", http.StatusForbidden)
 		if p.SkipProviderButton {
 			p.OAuthStart(rw, req)
 		} else {
@@ -499,6 +534,11 @@ func (p *OAuthProxy) Proxy(rw http.ResponseWriter, req *http.Request) {
 func (p *OAuthProxy) Authenticate(rw http.ResponseWriter, req *http.Request) int {
 	var saveSession, clearSession, revalidated bool
 	remoteAddr := getRemoteAddr(req)
+
+	appSession, appSessionAge, appErr := p.LoadAppCookiedSession(req)
+	if appErr != nil {
+		log.Printf("%s %s", remoteAddr, appErr)
+	}
 
 	session, sessionAge, err := p.LoadCookiedSession(req)
 	if err != nil {
@@ -547,21 +587,33 @@ func (p *OAuthProxy) Authenticate(rw http.ResponseWriter, req *http.Request) int
 			log.Printf("%s %s", remoteAddr, err)
 			return http.StatusInternalServerError
 		}
+
 	}
 
-	if clearSession {
-		p.ClearCookie(rw, req)
-	}
-
-	if session == nil {
-		session, err = p.CheckBasicAuth(req)
-		if err != nil {
-			log.Printf("%s %s", remoteAddr, err)
+	if appSession != "" && appErr == nil && appSessionAge > 0 {
+		log.Printf("Bypass google via CQ-TOKEN: %v", p.SavedAppCookieName)
+		p.SetAppCookie(rw, req, appSession)
+		return http.StatusAccepted
+	} else {
+		if session != nil && !session.IsExpired() {
+			log.Printf("try to set app token")
+			p.SetAppCookie(rw, req, session.Email)
 		}
-	}
 
-	if session == nil {
-		return http.StatusForbidden
+		if clearSession {
+			p.ClearCookie(rw, req)
+		}
+
+		if session == nil {
+			session, err = p.CheckBasicAuth(req)
+			if err != nil {
+				log.Printf("%s %s", remoteAddr, err)
+			}
+		}
+
+		if session == nil {
+			return http.StatusForbidden
+		}
 	}
 
 	// At this point, the user is authenticated. proxy normally

@@ -33,6 +33,10 @@ type Options struct {
 	DisplayHtpasswdForm      bool     `flag:"display-htpasswd-form" cfg:"display_htpasswd_form"`
 	CustomTemplatesDir       string   `flag:"custom-templates-dir" cfg:"custom_templates_dir"`
 
+	AppCookieName      string        `flag:"app-cookie-name" cfg:"app_cookie_name"`
+	SavedAppCookieName string        `flag:"saved-app-cookie-name" cfg:"saved_app_cookie_name"`
+	AppCookieExpire    time.Duration `flag:"app-cookie-expire" cfg:"app_cookie_expire"`
+
 	CookieName     string        `flag:"cookie-name" cfg:"cookie_name" env:"OAUTH2_PROXY_COOKIE_NAME"`
 	CookieSecret   string        `flag:"cookie-secret" cfg:"cookie_secret" env:"OAUTH2_PROXY_COOKIE_SECRET"`
 	CookieDomain   string        `flag:"cookie-domain" cfg:"cookie_domain" env:"OAUTH2_PROXY_COOKIE_DOMAIN"`
@@ -74,9 +78,12 @@ func NewOptions() *Options {
 		HttpAddress:         "127.0.0.1:4180",
 		HttpsAddress:        ":443",
 		DisplayHtpasswdForm: true,
+		AppCookieName:       "login-token",
+		SavedAppCookieName:  "_oauth2_cq",
 		CookieName:          "_oauth2_proxy",
 		CookieSecure:        true,
 		CookieHttpOnly:      true,
+		AppCookieExpire:     time.Duration(1) * time.Hour,
 		CookieExpire:        time.Duration(168) * time.Hour,
 		CookieRefresh:       time.Duration(0),
 		PassBasicAuth:       true,
