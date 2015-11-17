@@ -255,10 +255,10 @@ func (p *OAuthProxy) SetCookie(rw http.ResponseWriter, req *http.Request, val st
 }
 
 func (p *OAuthProxy) SetAppCookie(rw http.ResponseWriter, req *http.Request, val string) {
-	c, err := req.Cookie(p.AppCookieName)
+	_, err := req.Cookie(p.AppCookieName)
 	if err == nil {
-		log.Printf("%v detected - Set Application cookie CQ-token %v", p.AppCookieName, c.Value)
-		log.Printf("using val: %v", val)
+		// log.Printf("%v detected - Set Application cookie CQ-token %v", p.AppCookieName, c.Value)
+		// log.Printf("using val: %v", val)
 		// http.SetCookie(rw, p.MakeCookie(req, p.SavedAppCookieName, c.Value, p.CookieExpire, time.Now()))
 		http.SetCookie(rw, p.MakeCookie(req, p.SavedAppCookieName, val, p.AppCookieExpire, time.Now()))
 	}
@@ -590,31 +590,38 @@ func (p *OAuthProxy) Authenticate(rw http.ResponseWriter, req *http.Request) int
 
 	}
 
-	if appSession != "" && appErr == nil && appSessionAge > 0 {
-		log.Printf("Bypass google via CQ-TOKEN: %v", p.SavedAppCookieName)
-		p.SetAppCookie(rw, req, appSession)
-		return http.StatusAccepted
-	} else {
-		if session != nil && !session.IsExpired() {
-			log.Printf("try to set app token")
-			p.SetAppCookie(rw, req, session.Email)
-		}
+	// if appSession != "" && appErr == nil && appSessionAge > 0 {
+	// 	log.Printf("Bypass google via CQ-TOKEN: %v", p.SavedAppCookieName)
+	// 	p.SetAppCookie(rw, req, appSession)
+	// 	return http.StatusAccepted
+	// } else {
+	if session != nil && !session.IsExpired() {
+		// log.Printf("try to set app token")
+		p.SetAppCookie(rw, req, session.Email)
+	}
 
-		if clearSession {
-			p.ClearCookie(rw, req)
-		}
+	if clearSession {
+		p.ClearCookie(rw, req)
+	}
 
-		if session == nil {
-			session, err = p.CheckBasicAuth(req)
-			if err != nil {
-				log.Printf("%s %s", remoteAddr, err)
-			}
+	if session == nil {
+		session, err = p.CheckBasicAuth(req)
+		if err != nil {
+			log.Printf("%s %s", remoteAddr, err)
 		}
+	}
 
-		if session == nil {
+	if session == nil {
+		if appSession != "" && appErr == nil && appSessionAge > 0 {
+			log.Printf(" %s Bypass google via CQ-TOKEN: %v", appSession, p.SavedAppCookieName)
+			p.SetAppCookie(rw, req, appSession)
+			rw.Header().Set("GAP-Auth", appSession)
+			return http.StatusAccepted
+		} else {
 			return http.StatusForbidden
 		}
 	}
+	// }
 
 	// At this point, the user is authenticated. proxy normally
 	if p.PassBasicAuth {
